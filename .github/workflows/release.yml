@@ -68,7 +68,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build | Out-Null
-          zig build-exe hc.zig -O ReleaseSafe -femit-bin=${{ matrix.binary }}
+          zig build-exe hc.zig -O ReleaseSafe "-femit-bin=${{ matrix.binary }}"
       - name: Build native CLI
         if: runner.os != 'Windows'
         shell: bash
