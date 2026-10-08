@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary: build/hc
+          - os: macos-latest
+            binary: build/hc
+          - os: windows-latest
+            binary: build/hc.exe
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install pinned Zig
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python scripts/release.py setup-zig --out "$env:RUNNER_TEMP\hc-zig" >> $env:GITHUB_PATH
+      - name: Install pinned Zig
+        if: runner.os != 'Windows'
+        shell: bash
+        run: python3 scripts/release.py setup-zig --out "$RUNNER_TEMP/hc-zig" >> "$GITHUB_PATH"
+      - name: Check Zig version
+        run: zig version
+      - name: Check release scripts and target manifest
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m py_compile scripts/release.py
+          python scripts/release.py matrix | Out-Null
+          python scripts/test_release.py
+      - name: Check release scripts and target manifest
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          python3 -m py_compile scripts/release.py
+          python3 scripts/release.py matrix > /dev/null
+          python3 scripts/test_release.py
+      - name: Lint POSIX installer
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sh -n install.sh
+          shellcheck --shell=sh install.sh
+      - name: Check formatting and syntax
+        run: zig fmt --check hc.zig
+      - name: Check AST
+        run: zig ast-check hc.zig
+      - name: Run Zig tests
+        run: zig test hc.zig
+      - name: Build native CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          zig build-exe hc.zig -O ReleaseSafe -femit-bin=${{ matrix.binary }}
+      - name: Build native CLI
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p build
+          zig build-exe hc.zig -O ReleaseSafe -femit-bin=${{ matrix.binary }}
+      - name: Smoke-test native CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python scripts/release.py smoke --binary "${{ matrix.binary }}"
+      - name: Smoke-test native CLI
+        if: runner.os != 'Windows'
+        shell: bash
+        run: python3 scripts/release.py smoke --binary "${{ matrix.binary }}"
