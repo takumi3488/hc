@@ -34,6 +34,8 @@ const has_posix_signals = switch (builtin.os.tag) {
     else => false,
 };
 const has_signal_numbers = has_posix_signals or builtin.os.tag == .windows;
+// Zig's fork-based spawn waits for exec, so a child stopped before exec would deadlock it.
+const start_child_suspended = has_posix_signals and builtin.os.tag.isDarwin();
 
 const SignalScope = if (has_posix_signals) struct {
     previous_interrupt: std.posix.Sigaction,
@@ -378,7 +380,7 @@ fn runChild(io: std.Io, gpa: std.mem.Allocator, argv: []const []const u8) Comman
         .stdout = .inherit,
         .stderr = .inherit,
         .pgid = if (comptime has_posix_signals) 0 else null,
-        .start_suspended = has_posix_signals,
+        .start_suspended = start_child_suspended,
     }) catch |err| {
         const status = spawnErrorStatus(err);
         writeSpawnError(io, gpa, argv[0], err, status);
@@ -395,7 +397,7 @@ fn runChild(io: std.Io, gpa: std.mem.Allocator, argv: []const []const u8) Comman
     else
         null;
     defer if (comptime has_posix_signals) SignalScope.restoreTerminal(previous_foreground);
-    if (comptime has_posix_signals) SignalScope.resumeChild(child_pid);
+    if (comptime start_child_suspended) SignalScope.resumeChild(child_pid);
     const status = if (comptime builtin.os.tag == .windows)
         waitWindowsChild(&child, io)
     else blk: {
@@ -418,6 +420,14 @@ fn runChild(io: std.Io, gpa: std.mem.Allocator, argv: []const []const u8) Comman
 
             const encoded_status: u32 = @bitCast(wait_status);
             if (std.posix.W.IFSTOPPED(encoded_status)) {
+                // A child that touched the terminal before receiving the foreground keeps running.
+                const stop_signal = std.posix.W.STOPSIG(encoded_status);
+                if ((stop_signal == .TTIN or stop_signal == .TTOU) and
+                    SignalScope.terminalForegroundGroup() == child_pid)
+                {
+                    SignalScope.resumeChild(child_pid);
+                    continue;
+                }
                 SignalScope.restoreTerminal(previous_foreground);
                 _ = std.posix.system.kill(std.posix.system.getpid(), .TSTP);
                 _ = SignalScope.setTerminalForeground(child_pid);

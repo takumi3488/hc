@@ -534,10 +534,6 @@ def run_posix_signal_smoke(binary: Path) -> None:
                 wait_for(wrapper_pid_path.exists, "hc wrapper did not start in PTY regression")
                 wrapper_pid = int(wrapper_pid_path.read_text(encoding="utf-8"))
                 wrapper_pgid = wrapper_pid
-                wait_for(
-                    lambda: _pty_foreground_group(master_fd) == wrapper_pgid,
-                    "PTY supervisor did not put hc in the foreground",
-                )
                 wait_for(pid_path.exists, "hc child did not start in PTY regression")
                 child_pid = int(pid_path.read_text(encoding="utf-8"))
                 wait_for(
