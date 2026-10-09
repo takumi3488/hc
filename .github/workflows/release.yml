@@ -125,3 +125,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "${GITHUB_REF_NAME}" release-assets/* --verify-tag --generate-notes --title "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}"
+
+  tap:
+    name: Commit Homebrew formula to main
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+      - name: Commit published hc.rb as Formula/hc.rb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --pattern hc.rb --dir Formula --clobber
+          git add Formula/hc.rb
+          if git diff --cached --quiet; then
+            echo "Formula/hc.rb already matches ${GITHUB_REF_NAME}"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898283+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Update Homebrew formula to ${GITHUB_REF_NAME}"
+          git push origin HEAD:main

@@ -29,16 +29,14 @@ curl -fsSL https://github.com/takumi3488/hc/releases/latest/download/install.sh 
 
 The POSIX installer uses `curl`, `tar`, and a standard SHA-256 utility. It verifies the archive against the release's `SHA256SUMS` before installing to `~/.local/bin`, without sudo or shell-profile edits. Add that directory to your `PATH` yourself if needed. Set `HC_INSTALL_DIR` to choose another directory, `HC_VERSION` to select a release tag such as `v0.1.0`, or `HC_TARGET` to select an exact published target name.
 
-For Homebrew, create a local tap (first install only), download `hc.rb` from the chosen GitHub release into its formula directory, then install the formula:
+For Homebrew, tap this repository and install the formula:
 
 ```sh
-brew tap-new --no-git takumi3488/hc
-curl -fsSLo "$(brew --repository takumi3488/hc)/Formula/hc.rb" \
-  https://github.com/takumi3488/hc/releases/latest/download/hc.rb
+brew tap takumi3488/hc https://github.com/takumi3488/hc
 brew install takumi3488/hc/hc
 ```
 
-Homebrew requires formulas to be in a tap; no remote tap repository is published. To update, refresh `hc.rb` from the chosen release before running `brew upgrade`.
+The release workflow commits each release's `hc.rb` to `Formula/hc.rb` on `main`, so `brew upgrade hc` picks up new releases.
 
 For manual installation, download `hc-<target>.tar.gz` and `SHA256SUMS` from the same GitHub release, verify the checksum, and extract the archive; it contains only `hc` (or `hc.exe` on Windows). Linux release targets use the ABI shown in the target name, including `musl` or `gnu` where applicable.
 
