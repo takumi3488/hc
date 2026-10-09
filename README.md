@@ -36,7 +36,7 @@ brew tap takumi3488/hc https://github.com/takumi3488/hc
 brew install takumi3488/hc/hc
 ```
 
-The release workflow commits each release's `hc.rb` to `Formula/hc.rb` on `main`, so `brew upgrade hc` picks up new releases.
+The release workflow commits each release's `hc.rb` to `Formula/hc.rb` on `main`; upgrade with `brew update && brew upgrade hc`.
 
 For manual installation, download `hc-<target>.tar.gz` and `SHA256SUMS` from the same GitHub release, verify the checksum, and extract the archive; it contains only `hc` (or `hc.exe` on Windows). Linux release targets use the ABI shown in the target name, including `musl` or `gnu` where applicable.
 
