@@ -401,28 +401,16 @@ fn runChild(io: std.Io, gpa: std.mem.Allocator, argv: []const []const u8) Comman
     const status = if (comptime builtin.os.tag == .windows)
         waitWindowsChild(&child, io)
     else blk: {
-        var wait_status: if (builtin.link_libc) c_int else i32 = undefined;
         while (true) {
-            const wait_result = std.posix.system.waitpid(
-                child_pid,
-                &wait_status,
-                std.posix.W.UNTRACED,
-            );
-            switch (std.posix.errno(wait_result)) {
-                .SUCCESS => {},
-                .INTR => continue,
-                else => {
-                    if (comptime has_posix_signals) SignalScope.clearChild();
-                    stopChild(&child, child_pid, io);
-                    return .{ .status = 126, .started = true };
-                },
-            }
+            const term = waitChild(child_pid) orelse {
+                if (comptime has_posix_signals) SignalScope.clearChild();
+                stopChild(&child, child_pid, io);
+                return .{ .status = 126, .started = true };
+            };
 
-            const encoded_status: u32 = @bitCast(wait_status);
-            if (std.posix.W.IFSTOPPED(encoded_status)) {
+            if (term == .stopped) {
                 // A child that touched the terminal before receiving the foreground keeps running.
-                const stop_signal = std.posix.W.STOPSIG(encoded_status);
-                if ((stop_signal == .TTIN or stop_signal == .TTOU) and
+                if ((term.stopped == .TTIN or term.stopped == .TTOU) and
                     SignalScope.terminalForegroundGroup() == child_pid)
                 {
                     SignalScope.resumeChild(child_pid);
@@ -437,17 +425,45 @@ fn runChild(io: std.Io, gpa: std.mem.Allocator, argv: []const []const u8) Comman
 
             if (comptime has_posix_signals) SignalScope.clearChild();
             child.id = null;
-            if (std.posix.W.IFEXITED(encoded_status)) {
-                break :blk std.posix.W.EXITSTATUS(encoded_status);
-            }
-            if (std.posix.W.IFSIGNALED(encoded_status)) {
-                const signal = std.posix.W.TERMSIG(encoded_status);
-                break :blk signalStatus(signal);
-            }
-            break :blk 1;
+            break :blk switch (term) {
+                .exited => |code| code,
+                .signal => |signal| signalStatus(signal),
+                .stopped => unreachable,
+                .unknown => 1,
+            };
         }
     };
     return .{ .status = status, .started = true };
+}
+
+/// Waits until the child exits or stops; null when waiting fails.
+fn waitChild(pid: std.posix.pid_t) ?std.process.Child.Term {
+    if (comptime builtin.os.tag == .linux and !builtin.link_libc) {
+        // riscv32 and loongarch32 Linux have no wait4 syscall behind waitpid.
+        const linux = std.os.linux;
+        var information: linux.siginfo_t = undefined;
+        const flags = linux.W.EXITED | linux.W.STOPPED;
+        while (true) switch (linux.errno(linux.waitid(.PID, pid, &information, flags, null))) {
+            .SUCCESS => break,
+            .INTR => continue,
+            else => return null,
+        };
+        const status: u32 = @bitCast(information.fields.common.second.sigchld.status);
+        const code: linux.CLD = @fromBackingInt(@intCast(information.code));
+        return switch (code) {
+            .EXITED => .{ .exited = @truncate(status) },
+            .KILLED, .DUMPED => .{ .signal = @fromBackingInt(@intCast(status)) },
+            .TRAPPED, .STOPPED => .{ .stopped = @fromBackingInt(@intCast(status)) },
+            _, .CONTINUED => .{ .unknown = status },
+        };
+    }
+    var status: if (builtin.link_libc) c_int else i32 = undefined;
+    while (true) switch (std.posix.errno(std.posix.system.waitpid(pid, &status, std.posix.W.UNTRACED))) {
+        .SUCCESS => break,
+        .INTR => continue,
+        else => return null,
+    };
+    return std.Io.Threaded.statusToTerm(@bitCast(status));
 }
 
 fn waitWindowsChild(child: *std.process.Child, io: std.Io) u32 {
